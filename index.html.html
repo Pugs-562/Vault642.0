@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>VAULT64 — N64 Emulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #080c10;
+    --surface: #0d1318;
+    --surface2: #111820;
+    --border: #1a2530;
+    --border2: #243040;
+    --accent: #00c8ff;
+    --accent2: #ff6b35;
+    --text: #e8f4f8;
+    --text2: #7a9ab0;
+    --text3: #4a6a7a;
+    --green: #00ff88;
+    --red: #ff4060;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+    height: 54px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: 1.15rem;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,200,255,0.4);
+  }
+  .logo span { color: var(--accent2); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .header-status {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text3);
+    letter-spacing: 0.08em;
+  }
+
+  .settings-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--text2);
+    cursor: pointer;
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.08em;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .settings-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .sidebar-toggle {
+    display: none;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--text2);
+    cursor: pointer;
+    padding: 5px 10px;
+    font-size: 1rem;
+    transition: all 0.15s;
+  }
+  .sidebar-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ─── SETTINGS MODAL ─── */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+
+  .settings-modal {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    width: min(420px, 90vw);
+    padding: 1.5rem;
+    position: relative;
+  }
+
+  .modal-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.9rem;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .modal-close {
+    position: absolute;
+    top: 1rem; right: 1rem;
+    background: none;
+    border: none;
+    color: var(--text3);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+  .modal-close:hover { color: var(--red); }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .setting-row:last-child { border-bottom: none; }
+
+  .setting-label {
+    font-size: 0.82rem;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .setting-desc {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--text3);
+    margin-top: 2px;
+    letter-spacing: 0.05em;
+  }
+
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--border2);
+    border-radius: 24px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    left: 3px; top: 3px;
+    background: var(--text3);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: rgba(0,200,255,0.2); border: 1px solid var(--accent); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(20px); background: var(--accent); }
+
+  /* ─── LAYOUT ─── */
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    height: calc(100vh - 54px);
+    height: calc(100dvh - 54px);
+  }
+
+  /* ─── SIDEBAR & 3D LIBRARY ─── */
+  aside {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar-top {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 0.65rem;
+  }
+
+  .drop-zone {
+    border: 1.5px dashed var(--border2);
+    border-radius: 8px;
+    padding: 1.25rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    background: var(--surface2);
+    position: relative;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,200,255,0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,200,255,0.1);
+  }
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,200,255,0.03) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .drop-zone-icon { font-size: 1.75rem; margin-bottom: 0.4rem; display: block; }
+  .drop-zone-text { font-size: 0.78rem; color: var(--text2); line-height: 1.4; }
+  .drop-zone-sub {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text3);
+    margin-top: 0.4rem;
+  }
+  #rom-input { display: none; }
+
+  .game-list-header {
+    padding: 0.75rem 1rem 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .game-count {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text3);
+    letter-spacing: 0.1em;
+  }
+  .game-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.4rem;
+    perspective: 1000px; /* 3D Perspective container */
+  }
+  .game-list::-webkit-scrollbar { width: 4px; }
+  .game-list::-webkit-scrollbar-track { background: transparent; }
+  .game-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* --- 3D Library Items --- */
+  .game-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 1px solid transparent;
+    margin-bottom: 6px;
+    -webkit-user-select: none; user-select: none;
+    transform-style: preserve-3d;
+    background: var(--surface);
+    position: relative;
+    z-index: 1;
+  }
+  
+  .game-item:hover { 
+    background: var(--surface2); 
+    border-color: rgba(0, 200, 255, 0.3);
+    transform: translateY(-3px) translateZ(20px) rotateX(4deg) rotateY(-4deg);
+    box-shadow: -5px 10px 15px rgba(0,0,0,0.4), inset 0 0 10px rgba(0, 200, 255, 0.05);
+    z-index: 10;
+  }
+  
+  .game-item.active { 
+    background: rgba(0,200,255,0.06); 
+    border-color: rgba(0,200,255,0.4); 
+    box-shadow: 0 0 15px rgba(0, 200, 255, 0.1);
+  }
+
+  .game-thumb {
+    width: 42px; height: 42px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s;
+    transform: translateZ(0px);
+  }
+  
+  .game-item:hover .game-thumb {
+    transform: translateZ(40px) scale(1.15) rotateY(10deg);
+    box-shadow: -5px 5px 15px rgba(0,0,0,0.6);
+    border-color: var(--accent);
+  }
+  
+  .game-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .game-thumb-badge {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.42rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    text-align: center;
+  }
+  
+  .game-info { 
+    flex: 1; 
+    min-width: 0; 
+    transition: transform 0.4s;
+    transform: translateZ(0);
+  }
+  .game-item:hover .game-info {
+    transform: translateZ(20px);
+  }
+  
+  .game-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+    transition: color 0.3s;
+  }
+  .game-item:hover .game-name {
+    color: var(--accent);
+  }
+  
+  .game-meta {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--text3);
+  }
+  .game-item .remove-btn {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: var(--red);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 2px 5px;
+    border-radius: 3px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    transform: translateZ(10px);
+  }
+  .game-item:hover .remove-btn { opacity: 0.6; }
+  .game-item .remove-btn:hover { opacity: 1 !important; transform: translateZ(15px) scale(1.2); }
+
+  .empty-library {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: var(--text3);
+    font-size: 0.78rem;
+    line-height: 1.8;
+  }
+
+  /* ─── MAIN ─── */
+  main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .emu-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .emu-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 80px rgba(0,0,0,0.5), inset 0 0 4px rgba(0,200,255,0.1);
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .welcome-screen {
+    text-align: center;
+    padding: 2rem 1.5rem;
+    max-width: 440px;
+    animation: fadeIn 0.8s ease-out;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  
+  .welcome-logo {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: clamp(2.5rem, 8vw, 4rem);
+    color: var(--accent);
+    text-shadow: 0 0 40px rgba(0,200,255,0.3);
+    margin-bottom: 0.25rem;
+    letter-spacing: 0.1em;
+  }
+  .welcome-logo span { color: var(--accent2); }
+  .welcome-sub {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text3);
+    letter-spacing: 0.2em;
+    margin-bottom: 1.5rem;
+  }
+  .welcome-tip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem;
+    font-size: 0.8rem;
+    color: var(--text2);
+    line-height: 1.7;
+    text-align: left;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .welcome-tip strong { color: var(--accent); font-weight: 500; }
+  .tip-step { display: flex; align-items: flex-start; gap: 0.65rem; margin-bottom: 0.65rem; }
+  .tip-step:last-child { margin-bottom: 0; }
+  .tip-num {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(0,200,255,0.1);
+    border: 1px solid rgba(0,200,255,0.2);
+    border-radius: 50%;
+    width: 20px; height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  #emulator-wrapper {
+    width: 100%;
+    height: 100%;
+    display: none;
+    position: relative;
+  }
+  #emulator-wrapper.active { display: block; animation: powerOn 0.5s ease-out forwards; }
+  @keyframes powerOn { 0% { filter: brightness(0) contrast(1.5); } 100% { filter: brightness(1) contrast(1); } }
+  #game-container { width: 100%; height: 100%; }
+
+  /* ─── 3D LOADING OVERLAY & CUBE ─── */
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(8,12,16,0.92);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    display: none;
+    backdrop-filter: blur(5px);
+  }
+  .loading-overlay.active { display: flex; }
+
+  .cube-loader {
+    width: 60px;
+    height: 60px;
+    position: relative;
+    transform-style: preserve-3d;
+    animation: rotateCube 2.5s infinite linear;
+    margin-bottom: 2.5rem;
+  }
+  .cube-face {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    border: 2px solid var(--accent);
+    background: rgba(0, 200, 255, 0.1);
+    box-shadow: inset 0 0 15px rgba(0, 200, 255, 0.3), 0 0 15px rgba(0, 200, 255, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: 1.5rem;
+    color: var(--accent);
+  }
+  .cube-face.front  { transform: translateZ(30px); }
+  .cube-face.back   { transform: rotateY(180deg) translateZ(30px); }
+  .cube-face.right  { transform: rotateY(90deg) translateZ(30px); }
+  .cube-face.left   { transform: rotateY(-90deg) translateZ(30px); }
+  .cube-face.top    { transform: rotateX(90deg) translateZ(30px); }
+  .cube-face.bottom { transform: rotateX(-90deg) translateZ(30px); }
+
+  @keyframes rotateCube {
+    0%   { transform: rotateX(0deg) rotateY(0deg); }
+    100% { transform: rotateX(360deg) rotateY(360deg); }
+  }
+
+  .loading-text {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text);
+    letter-spacing: 0.2em;
+    animation: pulseText 1.5s infinite ease-in-out;
+  }
+  @keyframes pulseText { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  
+  .loading-game {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-top: 0.6rem;
+    text-shadow: 0 0 10px rgba(0,200,255,0.5);
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    height: 40px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    gap: 1rem;
+    flex-shrink: 0;
+  }
+  .now-playing {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .now-playing-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    flex-shrink: 0;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .now-playing-label {
+    font-size: 0.6rem;
+    color: var(--text3);
+    flex-shrink: 0;
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.1em;
+  }
+  .now-playing-text {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .controls-hint {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text3);
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+  kbd {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--text2);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 0.65rem 1rem;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text2);
+    letter-spacing: 0.05em;
+    z-index: 9998;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    max-width: 280px;
+    pointer-events: none;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-color: rgba(0,255,136,0.3); color: var(--green); }
+  .toast.error { border-color: rgba(255,64,96,0.3); color: var(--red); }
+
+  /* ═══════════════════════════════
+     MOBILE CONTROLS
+  ═══════════════════════════════ */
+  #mobile-controls { position: fixed; inset: 0; pointer-events: none; z-index: 500; }
+  #mobile-controls.hidden { display: none; }
+  .dpad-wrap { position: absolute; bottom: 70px; left: 20px; width: 130px; height: 130px; pointer-events: none; }
+  .dpad-btn { position: absolute; background: rgba(0,200,255,0.12); border: 1.5px solid rgba(0,200,255,0.35); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: rgba(0,200,255,0.8); font-size: 1rem; pointer-events: all; cursor: pointer; -webkit-user-select: none; user-select: none; transition: background 0.08s; -webkit-tap-highlight-color: transparent; }
+  .dpad-btn:active, .dpad-btn.pressed { background: rgba(0,200,255,0.28); border-color: var(--accent); }
+  .dpad-up    { top: 0; left: 50%; transform: translateX(-50%); width: 40px; height: 40px; border-radius: 6px 6px 2px 2px; }
+  .dpad-down  { bottom: 0; left: 50%; transform: translateX(-50%); width: 40px; height: 40px; border-radius: 2px 2px 6px 6px; }
+  .dpad-left  { left: 0; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 6px 2px 2px 6px; }
+  .dpad-right { right: 0; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 2px 6px 6px 2px; }
+  .dpad-center { top: 50%; left: 50%; transform: translate(-50%, -50%); width: 36px; height: 36px; background: rgba(0,200,255,0.06); border-color: rgba(0,200,255,0.15); border-radius: 4px; pointer-events: none; }
+  .action-wrap { position: absolute; bottom: 70px; right: 20px; width: 150px; height: 130px; pointer-events: none; }
+  .action-btn { position: absolute; pointer-events: all; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', monospace; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; border: 2px solid; transition: all 0.08s; flex-direction: column; gap: 1px; }
+  .action-btn:active, .action-btn.pressed { filter: brightness(1.4); transform: scale(0.92); }
+  .btn-a { width: 52px; height: 52px; background: rgba(0,200,255,0.15); border-color: var(--accent); color: var(--accent); right: 10px; bottom: 40px; font-size: 0.75rem; }
+  .btn-b { width: 42px; height: 42px; background: rgba(255,107,53,0.15); border-color: var(--accent2); color: var(--accent2); right: 70px; bottom: 20px; }
+  .btn-z { width: 38px; height: 38px; background: rgba(0,255,136,0.12); border-color: var(--green); color: var(--green); right: 100px; bottom: 80px; font-size: 0.55rem; }
+  .btn-start { width: 36px; height: 24px; border-radius: 12px; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); font-size: 0.45rem; bottom: 90px; right: 10px; }
+  .shoulder-wrap { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 60px; pointer-events: none; }
+  .shoulder-btn { pointer-events: all; background: rgba(0,200,255,0.1); border: 1.5px solid rgba(0,200,255,0.3); border-radius: 20px; color: rgba(0,200,255,0.7); font-family: 'Orbitron', monospace; font-size: 0.6rem; font-weight: 700; padding: 8px 18px; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; transition: all 0.08s; }
+  .shoulder-btn:active, .shoulder-btn.pressed { background: rgba(0,200,255,0.22); border-color: var(--accent); }
+  .controls-fab { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 501; background: rgba(0,200,255,0.15); border: 1.5px solid rgba(0,200,255,0.35); border-radius: 20px; color: var(--accent); font-family: 'Share Tech Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; padding: 7px 16px; cursor: pointer; display: none; -webkit-tap-highlight-color: transparent; }
+
+  @media (max-width: 700px) {
+    .app { grid-template-columns: 1fr; }
+    aside { position: fixed; left: 0; top: 54px; bottom: 0; width: 280px; z-index: 300; transform: translateX(-100%); }
+    aside.open { transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,0.5); }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; top: 54px; background: rgba(0,0,0,0.5); z-index: 299; }
+    .sidebar-overlay.open { display: block; }
+    .sidebar-toggle { display: flex; }
+    .header-status, .controls-hint { display: none; }
+    .welcome-screen { padding: 1.5rem 1rem; }
+    .welcome-logo { font-size: 2.5rem; }
+    #mobile-controls:not(.hidden) { display: block; }
+    .controls-fab { display: flex; align-items: center; gap: 5px; }
+  }
+  @media (min-width: 701px) {
+    #mobile-controls { display: none !important; }
+    .controls-fab { display: none !important; }
+    .shoulder-wrap { display: none; }
+  }
+  * { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:0.75rem">
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Menu">☰</button>
+    <div class="logo">VAULT<span>64</span></div>
+  </div>
+  <div class="header-right">
+    <div class="header-status" id="header-status">READY — LOAD A ROM</div>
+    <button class="settings-btn" id="settings-open-btn">⚙ SETTINGS</button>
+  </div>
+</header>
+
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+<div class="app">
+  <aside id="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-label">Load ROM</div>
+      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('rom-input').click()">
+        <span class="drop-zone-icon">🎮</span>
+        <div class="drop-zone-text">Drop ROM here or click to browse</div>
+        <div class="drop-zone-sub">.z64 .n64 .v64 .rom · N64 format</div>
+      </div>
+      <input type="file" id="rom-input" accept=".z64,.n64,.v64,.rom,.zip,.7z" multiple>
+    </div>
+    <div class="game-list-header">
+      <div class="sidebar-label" style="margin:0">Game Library</div>
+      <div class="game-count" id="game-count">0 ROMS</div>
+    </div>
+    <div class="game-list" id="game-list">
+      <div class="empty-library" id="empty-msg">
+        No ROMs loaded yet.<br>Drop a .z64 file above<br>to get started.
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="emu-container" id="emu-container">
+      <div class="welcome-screen" id="welcome-screen" style="display:flex;flex-direction:column;align-items:center">
+        <div class="welcome-logo">VAULT<span>64</span></div>
+        <div class="welcome-sub">NINTENDO 64 EMULATOR</div>
+        <div class="welcome-tip">
+          <div class="tip-step">
+            <div class="tip-num">1</div>
+            <div>Drop a <strong>.z64</strong> ROM file into the sidebar</div>
+          </div>
+          <div class="tip-step">
+            <div class="tip-num">2</div>
+            <div>Click the game in your library to <strong>launch it</strong></div>
+          </div>
+          <div class="tip-step">
+            <div class="tip-num">3</div>
+            <div>Use <strong>keyboard, gamepad, or on-screen controls</strong></div>
+          </div>
+        </div>
+      </div>
+      <div id="emulator-wrapper">
+        <div id="game-container"></div>
+      </div>
+      <div class="loading-overlay" id="loading-overlay">
+        <div class="cube-loader">
+          <div class="cube-face front">N</div>
+          <div class="cube-face back">6</div>
+          <div class="cube-face right">4</div>
+          <div class="cube-face left"></div>
+          <div class="cube-face top"></div>
+          <div class="cube-face bottom"></div>
+        </div>
+        <div class="loading-text">INITIALISING CORE</div>
+        <div class="loading-game" id="loading-game-name"></div>
+      </div>
+    </div>
+    <div class="bottom-bar">
+      <div class="now-playing" id="now-playing-bar" style="display:none">
+        <div class="now-playing-dot"></div>
+        <div class="now-playing-label">NOW PLAYING</div>
+        <div class="now-playing-text" id="now-playing-text">—</div>
+      </div>
+      <div class="controls-hint">
+        <kbd>↑↓←→</kbd> D-Pad &nbsp;
+        <kbd>Z</kbd> Z-Trig &nbsp;
+        <kbd>X</kbd> A &nbsp;
+        <kbd>C</kbd> B &nbsp;
+        <kbd>Enter</kbd> Start
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="mobile-controls">
+  <div class="shoulder-wrap">
+    <button class="shoulder-btn" data-key="q" data-label="L">L</button>
+    <button class="shoulder-btn" data-key="e" data-label="R">R</button>
+  </div>
+  <div class="dpad-wrap">
+    <div class="dpad-center dpad-btn"></div>
+    <button class="dpad-btn dpad-up"    data-key="ArrowUp">▲</button>
+    <button class="dpad-btn dpad-down"  data-key="ArrowDown">▼</button>
+    <button class="dpad-btn dpad-left"  data-key="ArrowLeft">◀</button>
+    <button class="dpad-btn dpad-right" data-key="ArrowRight">▶</button>
+  </div>
+  <div class="action-wrap">
+    <button class="action-btn btn-z"     data-key="z">Z</button>
+    <button class="action-btn btn-b"     data-key="c">B</button>
+    <button class="action-btn btn-a"     data-key="x">A</button>
+    <button class="action-btn btn-start" data-key="Enter">START</button>
+  </div>
+</div>
+
+<button class="controls-fab" id="controls-fab">🎮 SHOW CONTROLS</button>
+
+<div class="modal-backdrop" id="settings-modal">
+  <div class="settings-modal">
+    <div class="modal-title">⚙ SETTINGS</div>
+    <button class="modal-close" id="settings-close-btn">✕</button>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Mobile Controls</div>
+        <div class="setting-desc">On-screen D-pad &amp; buttons for touchscreens</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-mobile-controls" checked>
+        <div class="toggle-slider"></div>
+      </label>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Scanlines</div>
+        <div class="setting-desc">CRT scanline overlay effect</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-scanlines" checked>
+        <div class="toggle-slider"></div>
+      </label>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Auto-launch first ROM</div>
+        <div class="setting-desc">Start playing immediately after loading</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-autolaunch" checked>
+        <div class="toggle-slider"></div>
+      </label>
+    </div>
+    <div class="setting-row" style="border-bottom:none;padding-bottom:0;margin-top:0.5rem">
+      <div style="font-size:0.72rem;color:var(--text3);font-family:'Share Tech Mono',monospace;letter-spacing:0.06em">
+        VAULT64 · EmulatorJS · v1.2.0
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LIBRETRO_SYSTEM = { n64: "Nintendo - Nintendo 64" };
+const CDN = "https://thumbnails.libretro.com";
+
+function buildCandidates(filename) {
+  const sysDir = LIBRETRO_SYSTEM.n64;
+  const stem = filename.replace(/\.[^.]+$/, "");
+  const cands = new Set();
+  cands.add(stem);
+  cands.add(stem.replace(/_/g, " "));
+  const noTags = stem.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, "").trim();
+  cands.add(noTags);
+  cands.add(noTags.replace(/_/g, " "));
+  const base = stem.split(/[\(\[]/)[0].trim();
+  cands.add(base);
+  if (base) {
+    ['(USA)','(Europe)','(World)','(Japan)'].forEach(r => cands.add(`${base} ${r}`));
+  }
+  return Array.from(cands).filter(Boolean).map(name => {
+    const san = name.replace(/[&*/:`<>?\\|"]/g, "_");
+    return `${CDN}/${encodeURIComponent(sysDir)}/Named_Boxarts/${encodeURIComponent(san)}.png`;
+  });
+}
+
+function tryBoxArt(candidates, idx, imgEl, badgeEl) {
+  if (idx >= candidates.length) { imgEl.style.display='none'; badgeEl.style.display='flex'; return; }
+  imgEl.src = candidates[idx];
+  imgEl.onload = () => { badgeEl.style.display='none'; imgEl.style.display='block'; };
+  imgEl.onerror = () => tryBoxArt(candidates, idx+1, imgEl, badgeEl);
+}
+
+let library = [];
+let activeIdx = -1;
+let emuLoaded = false;
+
+const settings = {
+  mobileControls: loadSetting('mobileControls', true),
+  scanlines: loadSetting('scanlines', true),
+  autoLaunch: loadSetting('autoLaunch', true),
+};
+
+function loadSetting(key, def) {
+  try { const v = localStorage.getItem('vault64_' + key); return v === null ? def : v === 'true'; }
+  catch { return def; }
+}
+function saveSetting(key, val) {
+  try { localStorage.setItem('vault64_' + key, val); } catch {}
+}
+
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className='toast', 3000);
+}
+
+const dropZone = document.getElementById('drop-zone');
+const romInput = document.getElementById('rom-input');
+const gameList = document.getElementById('game-list');
+const emptyMsg = document.getElementById('empty-msg');
+const gameCount = document.getElementById('game-count');
+const welcomeScreen = document.getElementById('welcome-screen');
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingGameName = document.getElementById('loading-game-name');
+const emuWrapper = document.getElementById('emulator-wrapper');
+const headerStatus = document.getElementById('header-status');
+const nowPlayingBar = document.getElementById('now-playing-bar');
+const nowPlayingText = document.getElementById('now-playing-text');
+const mobileControls = document.getElementById('mobile-controls');
+const controlsFab = document.getElementById('controls-fab');
+const sidebar = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  const open = sidebar.classList.toggle('open');
+  sidebarOverlay.classList.toggle('open', open);
+});
+sidebarOverlay.addEventListener('click', () => {
+  sidebar.classList.remove('open');
+  sidebarOverlay.classList.remove('open');
+});
+
+const settingsModal = document.getElementById('settings-modal');
+document.getElementById('settings-open-btn').addEventListener('click', () => settingsModal.classList.add('open'));
+document.getElementById('settings-close-btn').addEventListener('click', () => settingsModal.classList.remove('open'));
+settingsModal.addEventListener('click', e => { if (e.target === settingsModal) settingsModal.classList.remove('open'); });
+
+document.getElementById('toggle-mobile-controls').checked = settings.mobileControls;
+document.getElementById('toggle-scanlines').checked = settings.scanlines;
+document.getElementById('toggle-autolaunch').checked = settings.autoLaunch;
+
+document.getElementById('toggle-mobile-controls').addEventListener('change', e => {
+  settings.mobileControls = e.target.checked;
+  saveSetting('mobileControls', e.target.checked);
+  applyMobileControls();
+});
+document.getElementById('toggle-scanlines').addEventListener('change', e => {
+  settings.scanlines = e.target.checked;
+  saveSetting('scanlines', e.target.checked);
+  applyScanlinesSettings();
+});
+document.getElementById('toggle-autolaunch').addEventListener('change', e => {
+  settings.autoLaunch = e.target.checked;
+  saveSetting('autoLaunch', e.target.checked);
+});
+
+function applyMobileControls() {
+  const isMobile = window.innerWidth <= 700;
+  if (!isMobile) return;
+  if (settings.mobileControls) {
+    mobileControls.classList.remove('hidden');
+    controlsFab.style.display = 'none';
+  } else {
+    mobileControls.classList.add('hidden');
+    controlsFab.style.display = 'flex';
+  }
+}
+
+function applyScanlinesSettings() {
+  document.body.style.setProperty('--scanlines-opacity', settings.scanlines ? '1' : '0');
+  document.body.classList.toggle('no-scanlines', !settings.scanlines);
+}
+
+controlsFab.addEventListener('click', () => {
+  settings.mobileControls = true;
+  saveSetting('mobileControls', true);
+  document.getElementById('toggle-mobile-controls').checked = true;
+  applyMobileControls();
+});
+
+const scanlinesStyle = document.createElement('style');
+scanlinesStyle.textContent = 'body.no-scanlines::before { display: none; }';
+document.head.appendChild(scanlinesStyle);
+applyScanlinesSettings();
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  Array.from(e.dataTransfer.files).forEach(file => handleFile(file));
+});
+romInput.addEventListener('change', () => {
+  Array.from(romInput.files).forEach(file => handleFile(file));
+});
+
+function handleFile(file) {
+  const validExts = ['.z64','.n64','.v64','.rom','.zip','.7z'];
+  const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+  if (!validExts.includes(ext)) {
+    toast(`Unsupported: ${file.name}`, 'error');
+    return;
+  }
+  if (library.some(g => g.name === file.name)) {
+    toast(`${file.name} already loaded`, 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const data = new Uint8Array(e.target.result);
+    const entry = { name: file.name, size: file.size, data };
+    library.push(entry);
+    renderLibrary();
+    toast(`Added: ${file.name}`, 'success');
+    if (settings.autoLaunch && library.length === 1) launchGame(0);
+    
+    if (window.innerWidth <= 700) {
+      sidebar.classList.remove('open');
+      sidebarOverlay.classList.remove('open');
+    }
+  };
+  reader.onerror = () => toast(`Failed to read ${file.name}`, 'error');
+  reader.readAsArrayBuffer(file);
+  romInput.value = '';
+}
+
+function renderLibrary() {
+  gameCount.textContent = `${library.length} ROM${library.length !== 1 ? 'S' : ''}`;
+  emptyMsg.style.display = library.length ? 'none' : 'block';
+  document.querySelectorAll('.game-item').forEach(el => el.remove());
+
+  library.forEach((g, i) => {
+    const item = document.createElement('div');
+    item.className = 'game-item' + (i === activeIdx ? ' active' : '');
+    const displayName = g.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+    const sizeMB = (g.size / 1024 / 1024).toFixed(1);
+    const cands = buildCandidates(g.name);
+
+    item.innerHTML = `
+      <div class="game-thumb">
+        <img id="thumb-img-${i}" style="display:none; width:100%; height:100%; object-fit:cover;" alt="">
+        <div class="game-thumb-badge" id="thumb-badge-${i}" style="display:flex; align-items:center; justify-content:center; width:100%; height:100%;">N64</div>
+      </div>
+      <div class="game-info">
+        <div class="game-name" title="${displayName}">${displayName}</div>
+        <div class="game-meta">N64 · ${sizeMB} MB</div>
+      </div>
+      <button class="remove-btn" title="Remove">✕</button>
+    `;
+
+    item.addEventListener('click', e => {
+      if (e.target.classList.contains('remove-btn')) return;
+      launchGame(i);
+      if (window.innerWidth <= 700) {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('open');
+      }
+    });
+
+    item.querySelector('.remove-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      removeGame(i);
+    });
+
+    gameList.appendChild(item);
+
+    setTimeout(() => {
+      const imgEl = document.getElementById(`thumb-img-${i}`);
+      const badgeEl = document.getElementById(`thumb-badge-${i}`);
+      if (imgEl && badgeEl) tryBoxArt(cands, 0, imgEl, badgeEl);
+    }, 50);
+  });
+}
+
+function removeGame(idx) {
+  const name = library[idx].name.replace(/\.[^.]+$/, '');
+  library.splice(idx, 1);
+  if (activeIdx === idx) {
+    activeIdx = -1;
+    emuWrapper.classList.remove('active');
+    emuWrapper.innerHTML = '<div id="game-container"></div>';
+    welcomeScreen.style.display = 'flex';
+    nowPlayingBar.style.display = 'none';
+    headerStatus.textContent = 'READY — LOAD A ROM';
+    emuLoaded = false;
+  } else if (activeIdx > idx) {
+    activeIdx--;
+  }
+  renderLibrary();
+  toast(`Removed: ${name}`);
+}
+
+function launchGame(idx) {
+  if (idx === activeIdx && emuLoaded) return;
+
+  const game = library[idx];
+  activeIdx = idx;
+
+  welcomeScreen.style.display = 'none';
+  loadingGameName.textContent = game.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ').toUpperCase();
+  loadingOverlay.classList.add('active');
+
+  const oldScript = document.getElementById('ejs-script');
+  if (oldScript) oldScript.remove();
+  document.querySelectorAll('[id^="EJS_"]').forEach(el => el.remove());
+
+  emuWrapper.innerHTML = '<div id="game-container"></div>';
+  emuWrapper.classList.remove('active');
+  void emuWrapper.offsetWidth;
+  emuWrapper.classList.add('active');
+  emuLoaded = false;
+
+  const displayName = game.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+  nowPlayingText.textContent = displayName;
+  nowPlayingBar.style.display = 'flex';
+  headerStatus.textContent = `PLAYING: ${displayName.toUpperCase()}`;
+  renderLibrary();
+
+  const blob = new Blob([game.data], { type: 'application/octet-stream' });
+  const romUrl = URL.createObjectURL(blob);
+
+  ['EJS_player','EJS_core','EJS_gameUrl','EJS_pathtodata','EJS_startOnLoaded',
+   'EJS_fullscreenOnLoaded','EJS_color','EJS_backgroundColor','EJS_defaultControls',
+   'EJS_language','EJS_Buttons','EJS_onGameStart','EJS_onLoadState','EJS_onSaveState']
+    .forEach(k => delete window[k]);
+
+  window.EJS_player = '#game-container';
+  window.EJS_core = 'n64';
+  window.EJS_gameUrl = romUrl;
+  window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+  window.EJS_startOnLoaded = true;
+  window.EJS_fullscreenOnLoaded = false;
+  window.EJS_color = '#00c8ff';
+  window.EJS_backgroundColor = '#080c10';
+  window.EJS_defaultControls = 1;
+  window.EJS_language = 'en-US';
+  window.EJS_Buttons = {
+    playPause: true, restart: true, mute: true, settings: true,
+    fullscreen: true, saveState: true, loadState: true,
+    screenRecord: false, gamepad: true, cheat: false,
+    volume: true, saveSavFiles: true,
+  };
+
+  window.EJS_onGameStart = () => {
+    loadingOverlay.classList.remove('active');
+    emuLoaded = true;
+    applyMobileControls();
+  };
+
+  const script = document.createElement('script');
+  script.id = 'ejs-script';
+  script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+  script.onerror = () => {
+    loadingOverlay.classList.remove('active');
+    toast('Failed to load emulator. Check internet.', 'error');
+  };
+  document.body.appendChild(script);
+}
+
+function fireKey(type, code, key) {
+  const evt = new KeyboardEvent(type, {
+    bubbles: true, cancelable: true,
+    key, code,
+    keyCode: key === 'ArrowUp' ? 38 : key === 'ArrowDown' ? 40 :
+             key === 'ArrowLeft' ? 37 : key === 'ArrowRight' ? 39 :
+             key === 'Enter' ? 13 : key.toUpperCase().charCodeAt(0),
+    which: key === 'ArrowUp' ? 38 : key === 'ArrowDown' ? 40 :
+           key === 'ArrowLeft' ? 37 : key === 'ArrowRight' ? 39 :
+           key === 'Enter' ? 13 : key.toUpperCase().charCodeAt(0),
+  });
+  document.dispatchEvent(evt);
+  const canvas = document.querySelector('#game-container canvas');
+  if (canvas) canvas.dispatchEvent(evt);
+}
+
+function setupMobileBtn(btn) {
+  const key = btn.dataset.key;
+  if (!key) return;
+
+  let held = false;
+  let holdInterval = null;
+
+  function press() {
+    if (held) return;
+    held = true;
+    btn.classList.add('pressed');
+    fireKey('keydown', `Key${key.toUpperCase()}`, key);
+    holdInterval = setInterval(() => fireKey('keydown', `Key${key.toUpperCase()}`, key), 80);
+  }
+  function release() {
+    if (!held) return;
+    held = false;
+    btn.classList.remove('pressed');
+    clearInterval(holdInterval);
+    fireKey('keyup', `Key${key.toUpperCase()}`, key);
+  }
+
+  btn.addEventListener('touchstart', e => { e.preventDefault(); press(); }, { passive: false });
+  btn.addEventListener('touchend',   e => { e.preventDefault(); release(); }, { passive: false });
+  btn.addEventListener('touchcancel',e => { e.preventDefault(); release(); }, { passive: false });
+  btn.addEventListener('mousedown',  e => { e.preventDefault(); press(); });
+  btn.addEventListener('mouseup',    e => { e.preventDefault(); release(); });
+  btn.addEventListener('mouseleave', e => { if (held) release(); });
+}
+
+document.querySelectorAll('.dpad-btn[data-key], .action-btn, .shoulder-btn').forEach(setupMobileBtn);
+applyMobileControls();
+window.addEventListener('resize', applyMobileControls);
+</script>
+</body>
+</html>
